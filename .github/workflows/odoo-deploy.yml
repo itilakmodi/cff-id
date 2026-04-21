@@ -1,0 +1,81 @@
+name: CFFID Odoo Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy Odoo Modules
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} << 'EOF'
+
+          set -e
+
+          DATE=$(date +%d%m%Y-%H%M)
+
+          APP_PATH="/opt/odoo17/odoo17"
+          ADDONS_PATH="/opt/odoo17/odoo17/custom-addons"
+          TEMP_PATH="/tmp/cffid-deploy"
+
+          echo "==============================="
+          echo "Starting Odoo Deployment"
+          echo "==============================="
+
+          cd $APP_PATH
+
+          echo "Creating Backup..."
+          sudo cp -r custom-addons custom-addons-$DATE
+
+          echo "Backup Created: custom-addons-$DATE"
+
+          echo "Cleaning Old Temp Directory..."
+          rm -rf $TEMP_PATH
+          mkdir -p $TEMP_PATH
+
+          cd $TEMP_PATH
+
+          echo "Cloning Latest Repository..."
+          git clone --depth 1 https://github.com/itilakmodi/cff-id.git
+
+          echo "Copying Updated Modules..."
+
+          sudo rm -rf $ADDONS_PATH/arakanaapps
+          sudo rm -rf $ADDONS_PATH/cffidapps
+
+          sudo cp -r cff-id/arakanaapps $ADDONS_PATH/
+          sudo cp -r cff-id/cffidapps $ADDONS_PATH/
+
+          echo "Fixing Ownership..."
+          sudo chown -R odoo17:odoo17 $ADDONS_PATH
+
+          echo "Restarting Odoo Service..."
+          sudo systemctl restart odoo17
+
+          echo "Checking Odoo Service Status..."
+          sudo systemctl status odoo17 --no-pager
+
+          echo "Cleaning Temporary Files..."
+          rm -rf $TEMP_PATH
+
+          echo "==============================="
+          echo "Deployment Completed Successfully"
+          echo "==============================="
+
+          EOF
